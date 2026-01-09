@@ -8,9 +8,34 @@
 ## Project Identity
 
 **Name:** Coffee Lead CRM (Coffee-militant)
-**Owner:** Coffee supplier business
+**Owner:** Hark Coffee Roasters
 **Purpose:** Automated lead generation and sales pipeline for B2B coffee samples
 **End Goal:** Convert professional offices into customers on the Upstock ordering platform
+
+---
+
+## Business Details
+
+| Field | Value |
+|-------|-------|
+| **Business Name** | Hark Coffee Roasters |
+| **Director** | Sam McKay |
+| **Email** | sam@harkcoffee.com |
+| **Phone** | 0478 121 171 |
+| **Instagram** | [@harkcoffee](https://www.instagram.com/harkcoffee/) |
+| **Location 1** | HARK ROASTERY & CAFÉ: 57 Boothby Street, Panorama |
+| **Location 2** | HARK CENTRAL: 65-67 Duthy Street, Malvern |
+| **Location 3** | MOLLYMAWK: 243 Seacombe Road, South Brighton |
+
+---
+
+## Scraper Configuration
+
+| Setting | Value |
+|---------|-------|
+| **Target Region** | Adelaide, South Australia |
+| **Search Radius** | TBD (start with metro area) |
+| **Existing Contacts Sheet** | [Google Sheet](https://docs.google.com/spreadsheets/d/15JmjQjjQIfhY0zKMzqBlvMMRGgJf3VFVgpOut_DG49s/) |
 
 ---
 
@@ -167,13 +192,20 @@ Coffee-militant/
 
 ## Questions to Ask User (When Needed)
 
-- [ ] What location(s) should the scraper search? (City/region)
-- [ ] What email address will send the outreach emails?
-- [ ] Can you share the existing contact list to exclude?
-- [ ] What's the email template/message for outreach?
-- [ ] What's the follow-up email template?
+- [x] What location(s) should the scraper search? → **Adelaide, South Australia**
+- [x] What email address will send the outreach emails? → **sam@harkcoffee.com**
+- [x] Can you share the existing contact list to exclude? → **Google Sheet provided**
+- [x] What's the email template/message for outreach? → **See email_templates.md**
+- [ ] What's the follow-up email template? → Draft created, needs approval
 
 ---
 
-*Last Updated: 2026-01-08*
-*Version: 1.0*
+## Outstanding Questions
+
+- [ ] Column structure of existing contacts Google Sheet (need access or description)
+- [ ] Upstock signup link for follow-up email
+
+---
+
+*Last Updated: 2026-01-09*
+*Version: 1.1*
