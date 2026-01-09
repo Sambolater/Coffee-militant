@@ -338,7 +338,8 @@ class PlacesScraper:
     def search_all_categories(
         self,
         exclusion_emails: Set[str] = None,
-        max_per_category: int = 20
+        max_per_category: int = 20,
+        include_no_email: bool = True
     ) -> List[Dict]:
         """
         Search for businesses in all configured categories.
@@ -346,6 +347,7 @@ class PlacesScraper:
         Args:
             exclusion_emails: Set of emails to skip (already contacted)
             max_per_category: Max results per search term
+            include_no_email: If True, include leads without emails
 
         Returns:
             List of new leads (not in exclusion list)
@@ -355,18 +357,21 @@ class PlacesScraper:
 
         all_leads = []
         seen_place_ids = set()
+        stats = {'found': 0, 'no_email': 0, 'excluded': 0, 'added': 0}
 
         categories = self.config.get('target_businesses', [])
+        print(f"\n📋 Searching {len(categories)} categories...")
 
         for category_config in categories:
             category = category_config.get('category', 'Unknown')
             search_terms = category_config.get('search_terms', [])
 
-            print(f"\n📁 Category: {category}")
+            print(f"\n📁 Category: {category} ({len(search_terms)} search terms)")
 
             for term in search_terms:
                 # Search for businesses
                 businesses = self.search_businesses(term, max_results=max_per_category)
+                stats['found'] += len(businesses)
 
                 for biz in businesses:
                     place_id = biz.get('place_id')
@@ -377,25 +382,42 @@ class PlacesScraper:
                     seen_place_ids.add(place_id)
 
                     # Get full details
+                    print(f"   Getting details: {biz.get('business_name', 'Unknown')[:40]}...")
                     lead = self.scrape_full_lead(place_id, category)
 
                     if not lead:
+                        print(f"   ⚠ No details found")
                         continue
 
-                    # Skip if no email found
-                    if not lead.get('email'):
-                        print(f"  ⚠ No email: {lead['business_name']}")
-                        continue
+                    # Check if email found
+                    has_email = bool(lead.get('email'))
 
-                    # Skip if in exclusion list
-                    if lead['email'].lower() in exclusion_emails:
-                        print(f"  ⏭ Already contacted: {lead['business_name']}")
-                        continue
+                    if not has_email:
+                        stats['no_email'] += 1
+                        if not include_no_email:
+                            print(f"   ⚠ No email: {lead['business_name']}")
+                            continue
+                        lead['status'] = 'no_email'
+                        print(f"   📝 No email (keeping): {lead['business_name']}")
+                    else:
+                        # Skip if in exclusion list
+                        if lead['email'].lower() in exclusion_emails:
+                            stats['excluded'] += 1
+                            print(f"   ⏭ Already contacted: {lead['business_name']}")
+                            continue
+                        print(f"   ✓ New lead: {lead['business_name']} ({lead['email']})")
 
-                    print(f"  ✓ New lead: {lead['business_name']} ({lead['email']})")
                     all_leads.append(lead)
+                    stats['added'] += 1
 
-        print(f"\n📊 Total new leads found: {len(all_leads)}")
+        print(f"\n" + "=" * 50)
+        print(f"📊 SCRAPE STATS:")
+        print(f"   Businesses found: {stats['found']}")
+        print(f"   Without email: {stats['no_email']}")
+        print(f"   Already contacted: {stats['excluded']}")
+        print(f"   New leads added: {stats['added']}")
+        print(f"=" * 50)
+
         return all_leads
 
 
