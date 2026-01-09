@@ -37,6 +37,18 @@
 | **Search Radius** | TBD (start with metro area) |
 | **Existing Contacts Sheet** | [Google Sheet](https://docs.google.com/spreadsheets/d/15JmjQjjQIfhY0zKMzqBlvMMRGgJf3VFVgpOut_DG49s/) |
 
+### Existing Contacts Sheet Structure
+
+| Column | Header | Purpose |
+|--------|--------|---------|
+| A | Business Name | Company name |
+| B | Industry | Business category |
+| C | Contact Email | **Key field for exclusion check** |
+| D | Physical Address | Full address |
+| E | Phone Number | Contact phone |
+
+**~220 businesses already contacted** — must exclude from new outreach
+
 ---
 
 ## The User
@@ -202,8 +214,8 @@ Coffee-militant/
 
 ## Outstanding Questions
 
-- [ ] Column structure of existing contacts Google Sheet (need access or description)
-- [ ] Upstock signup link for follow-up email
+- [x] Column structure of existing contacts Google Sheet → **See Scraper Configuration section**
+- [ ] Upstock signup link for follow-up email (manual setup for now)
 
 ---
 
