@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Coffee Lead CRM - Main Scraper Script
-Simplified and robust version with better error handling.
+Targets 200+ leads WITH emails per day.
 """
 
 import os
@@ -17,6 +17,16 @@ def log(msg):
     """Print with timestamp."""
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
     sys.stdout.flush()
+
+def load_config():
+    """Load search configuration from JSON file."""
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'search_terms.json')
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        log("Config file not found, using defaults")
+        return None
 
 def check_env():
     """Check all required environment variables."""
@@ -35,9 +45,9 @@ def check_env():
     for key, value in required.items():
         if value:
             preview = value[:20] + "..." if len(value) > 20 else value
-            log(f"  ✓ {key}: {preview}")
+            log(f"  {key}: {preview}")
         else:
-            log(f"  ✗ {key}: MISSING!")
+            log(f"  {key}: MISSING!")
             all_set = False
 
     return all_set, required
@@ -64,28 +74,24 @@ def test_google_maps_api(api_key):
 
         if status == 'OK':
             results = data.get('results', [])
-            log(f"  ✓ Found {len(results)} businesses")
-            if results:
-                log(f"  Sample: {results[0].get('name', 'Unknown')}")
+            log(f"  Found {len(results)} businesses")
             return True, data
         elif status == 'REQUEST_DENIED':
-            log(f"  ✗ API Error: {data.get('error_message', 'Unknown error')}")
-            log("  → Check that Places API is enabled in Google Cloud Console")
+            log(f"  API Error: {data.get('error_message', 'Unknown error')}")
             return False, data
         elif status == 'ZERO_RESULTS':
-            log("  ⚠ No results found (API works but no matches)")
+            log("  No results found (API works but no matches)")
             return True, data
         else:
-            log(f"  ✗ Unexpected status: {status}")
-            log(f"  Error: {data.get('error_message', 'No error message')}")
+            log(f"  Unexpected status: {status}")
             return False, data
 
     except Exception as e:
-        log(f"  ✗ Request failed: {e}")
+        log(f"  Request failed: {e}")
         return False, None
 
 def test_sheets_connection(service_json, sheet_id):
-    """Test Google Sheets connection."""
+    """Test Google Sheets connection and get exclusion emails."""
     log("\n" + "=" * 60)
     log("TESTING GOOGLE SHEETS CONNECTION")
     log("=" * 60)
@@ -96,7 +102,6 @@ def test_sheets_connection(service_json, sheet_id):
 
         log("  Parsing service account JSON...")
 
-        # Parse the JSON
         if os.path.exists(service_json):
             creds = Credentials.from_service_account_file(
                 service_json,
@@ -112,153 +117,226 @@ def test_sheets_connection(service_json, sheet_id):
         log("  Connecting to Google Sheets...")
         client = gspread.authorize(creds)
 
-        log(f"  Opening sheet: {sheet_id[:20]}...")
+        log(f"  Opening exclusion sheet: {sheet_id[:20]}...")
         sheet = client.open_by_key(sheet_id)
         worksheet = sheet.sheet1
 
-        log("  Reading data...")
-        # Get column C (emails)
-        emails = worksheet.col_values(3)
-        log(f"  ✓ Found {len(emails)} rows in email column")
+        log("  Reading existing contacts...")
+        emails = worksheet.col_values(3)  # Column C = emails
+        log(f"  Found {len(emails)} rows in email column")
 
         # Filter to actual emails
         email_set = {e.lower().strip() for e in emails[1:] if e and '@' in e}
-        log(f"  ✓ {len(email_set)} unique emails to exclude")
-
-        if email_set:
-            sample = list(email_set)[:3]
-            log(f"  Sample: {sample}")
+        log(f"  {len(email_set)} unique emails to exclude")
 
         return True, email_set
 
     except Exception as e:
-        log(f"  ✗ Failed: {e}")
+        log(f"  Failed: {e}")
         import traceback
         traceback.print_exc()
         return False, set()
 
 def find_email_from_website(url):
-    """Find email from a website."""
+    """Find email from a website - checks multiple pages."""
     if not url:
         return None
 
-    pages = ['', '/contact', '/contact-us', '/about']
+    pages = ['', '/contact', '/contact-us', '/about', '/about-us', '/team', '/our-team']
     email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+    # Skip these fake/useless emails
+    skip_patterns = ['example', 'sentry', 'wixpress', '.png', '.jpg', '.gif',
+                     'noreply', 'no-reply', 'test@', 'email@', 'your@']
 
     for page in pages:
         try:
             full_url = urljoin(url, page)
-            resp = requests.get(full_url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'})
+            resp = requests.get(full_url, timeout=8, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
             if resp.status_code == 200:
                 emails = re.findall(email_pattern, resp.text)
                 for email in emails:
                     email = email.lower()
-                    if not any(x in email for x in ['example', 'sentry', 'wixpress', '.png', '.jpg']):
+                    if not any(x in email for x in skip_patterns):
                         return email
         except:
             continue
     return None
 
-def scrape_leads(api_key, exclusion_emails):
-    """Main scraping function."""
+def search_with_pagination(api_key, query, max_pages=3):
+    """Search Google Maps with pagination to get more results."""
+    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    all_results = []
+    next_page_token = None
+
+    for page in range(max_pages):
+        params = {'query': query, 'key': api_key}
+
+        if next_page_token:
+            params['pagetoken'] = next_page_token
+            time.sleep(2)  # Google requires delay before using page token
+
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            data = resp.json()
+
+            if data.get('status') != 'OK':
+                break
+
+            results = data.get('results', [])
+            all_results.extend(results)
+
+            next_page_token = data.get('next_page_token')
+            if not next_page_token:
+                break
+
+        except Exception as e:
+            log(f"    Search error: {e}")
+            break
+
+    return all_results
+
+def scrape_leads(api_key, exclusion_emails, config):
+    """Main scraping function - targets 200+ leads with emails."""
     log("\n" + "=" * 60)
-    log("SCRAPING LEADS")
+    log("SCRAPING LEADS (Target: 200+ with emails)")
     log("=" * 60)
 
-    search_terms = [
-        ("Real Estate", ["real estate agent Adelaide"]),
-        ("Accounting", ["accountant Adelaide", "CPA Adelaide"]),
-        ("Lawyers", ["lawyer Adelaide", "solicitor Adelaide"]),
-        ("Architects", ["architect Adelaide"]),
-        ("Marketing", ["marketing agency Adelaide"]),
-    ]
+    # Get search config
+    if config:
+        categories = config.get('target_businesses', [])
+        location = config.get('location', {})
+        location_str = f"{location.get('city', 'Adelaide')}, {location.get('state', 'South Australia')}"
+        exclude_types = set(config.get('exclude_types', []))
+    else:
+        # Fallback defaults
+        categories = [
+            {"category": "Real Estate", "search_terms": ["real estate agent", "property management", "real estate agency"]},
+            {"category": "Accounting", "search_terms": ["accountant", "CPA", "tax accountant", "bookkeeper", "accounting firm"]},
+            {"category": "Lawyers", "search_terms": ["lawyer", "solicitor", "law firm", "legal services"]},
+            {"category": "Architects", "search_terms": ["architect", "architecture firm"]},
+            {"category": "Marketing", "search_terms": ["marketing agency", "digital marketing", "advertising agency"]},
+            {"category": "Branding", "search_terms": ["branding agency", "graphic design agency", "creative agency"]},
+            {"category": "Interior Design", "search_terms": ["interior designer", "interior design studio"]},
+            {"category": "Wealth Management", "search_terms": ["financial advisor", "financial planner", "wealth management"]},
+        ]
+        location_str = "Adelaide, South Australia"
+        exclude_types = {'cafe', 'restaurant', 'food', 'bakery', 'bar', 'coffee_shop'}
 
     all_leads = []
     seen_ids = set()
+    seen_emails = set()
+    stats = {'searched': 0, 'found': 0, 'with_email': 0, 'excluded': 0, 'skipped_type': 0}
 
-    for category, terms in search_terms:
-        log(f"\n📁 {category}")
+    log(f"  Location: {location_str}")
+    log(f"  Categories: {len(categories)}")
+    log(f"  Exclusion list: {len(exclusion_emails)} emails")
+
+    for cat_config in categories:
+        category = cat_config.get('category', 'Unknown')
+        terms = cat_config.get('search_terms', [])
+
+        log(f"\n{'='*50}")
+        log(f"Category: {category} ({len(terms)} search terms)")
+        log(f"{'='*50}")
 
         for term in terms:
-            log(f"  🔍 Searching: {term}")
+            query = f"{term} in {location_str}"
+            log(f"\n  Searching: {query}")
+            stats['searched'] += 1
 
-            # Search Google Maps
-            url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-            params = {'query': term, 'key': api_key}
+            # Get results with pagination (up to 60 per term)
+            results = search_with_pagination(api_key, query, max_pages=3)
+            log(f"    Found {len(results)} places")
 
-            try:
-                resp = requests.get(url, params=params, timeout=30)
-                data = resp.json()
+            for place in results:
+                place_id = place.get('place_id')
+                name = place.get('name', 'Unknown')
 
-                if data.get('status') != 'OK':
-                    log(f"    ⚠ API status: {data.get('status')}")
+                # Skip duplicates
+                if place_id in seen_ids:
+                    continue
+                seen_ids.add(place_id)
+                stats['found'] += 1
+
+                # Skip excluded business types (cafes, restaurants, etc.)
+                types = place.get('types', [])
+                if any(t in exclude_types for t in types):
+                    stats['skipped_type'] += 1
                     continue
 
-                results = data.get('results', [])[:10]  # Limit to 10 per term
-                log(f"    Found {len(results)} businesses")
+                # Get place details (phone, website)
+                details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+                details_params = {
+                    'place_id': place_id,
+                    'fields': 'name,formatted_address,formatted_phone_number,website',
+                    'key': api_key
+                }
 
-                for place in results:
-                    place_id = place.get('place_id')
-                    name = place.get('name', 'Unknown')
+                try:
+                    details_resp = requests.get(details_url, params=details_params, timeout=10)
+                    details = details_resp.json().get('result', {})
+                except:
+                    details = {}
 
-                    if place_id in seen_ids:
-                        continue
-                    seen_ids.add(place_id)
+                website = details.get('website', '')
 
-                    # Skip cafes/restaurants
-                    types = place.get('types', [])
-                    if any(t in types for t in ['cafe', 'restaurant', 'food', 'bakery']):
-                        continue
+                # Find email from website
+                email = find_email_from_website(website) if website else None
 
-                    # Get details
-                    details_url = "https://maps.googleapis.com/maps/api/place/details/json"
-                    details_params = {
-                        'place_id': place_id,
-                        'fields': 'name,formatted_address,formatted_phone_number,website',
-                        'key': api_key
-                    }
+                # SKIP if no email found (we only want leads WITH emails)
+                if not email:
+                    continue
 
-                    try:
-                        details_resp = requests.get(details_url, params=details_params, timeout=10)
-                        details = details_resp.json().get('result', {})
-                    except:
-                        details = {}
+                # Skip duplicates by email
+                if email.lower() in seen_emails:
+                    continue
+                seen_emails.add(email.lower())
 
-                    website = details.get('website', '')
-                    email = find_email_from_website(website) if website else None
+                # Check exclusion list
+                if email.lower() in exclusion_emails:
+                    log(f"    EXCLUDED: {name} ({email})")
+                    stats['excluded'] += 1
+                    continue
 
-                    # Check exclusion
-                    if email and email.lower() in exclusion_emails:
-                        log(f"    ⏭ Excluded: {name}")
-                        continue
+                stats['with_email'] += 1
 
-                    lead = {
-                        'business_name': details.get('name', name),
-                        'industry': category,
-                        'email': email or '',
-                        'address': details.get('formatted_address', place.get('formatted_address', '')),
-                        'phone': details.get('formatted_phone_number', ''),
-                        'website': website,
-                        'status': 'new' if email else 'no_email',
-                        'source': 'google_maps',
-                    }
+                lead = {
+                    'business_name': details.get('name', name),
+                    'industry': category,
+                    'email': email,
+                    'address': details.get('formatted_address', place.get('formatted_address', '')),
+                    'phone': details.get('formatted_phone_number', ''),
+                    'website': website,
+                    'status': 'new',
+                    'source': 'google_maps',
+                }
 
-                    if email:
-                        log(f"    ✓ {name} ({email})")
-                    else:
-                        log(f"    📝 {name} (no email)")
+                log(f"    NEW LEAD: {name} ({email})")
+                all_leads.append(lead)
 
-                    all_leads.append(lead)
-                    time.sleep(0.1)  # Rate limiting
+                time.sleep(0.1)  # Rate limiting
 
-            except Exception as e:
-                log(f"    ✗ Error: {e}")
-                continue
+                # Progress update every 50 leads
+                if len(all_leads) % 50 == 0:
+                    log(f"\n    === Progress: {len(all_leads)} leads with emails ===\n")
+
+    # Final stats
+    log("\n" + "=" * 60)
+    log("SCRAPE STATS")
+    log("=" * 60)
+    log(f"  Search terms processed: {stats['searched']}")
+    log(f"  Total places found: {stats['found']}")
+    log(f"  Skipped (cafe/restaurant): {stats['skipped_type']}")
+    log(f"  Already contacted: {stats['excluded']}")
+    log(f"  NEW LEADS WITH EMAIL: {stats['with_email']}")
 
     return all_leads
 
 def save_leads(leads, service_json, crm_sheet_id):
-    """Save leads to Google Sheets."""
+    """Save leads to Google Sheets CRM."""
     log("\n" + "=" * 60)
     log("SAVING TO CRM")
     log("=" * 60)
@@ -284,8 +362,25 @@ def save_leads(leads, service_json, crm_sheet_id):
             )
 
         client = gspread.authorize(creds)
+
+        log(f"  Opening CRM sheet: {crm_sheet_id[:20]}...")
         sheet = client.open_by_key(crm_sheet_id)
         worksheet = sheet.sheet1
+
+        # Check if headers exist
+        try:
+            first_row = worksheet.row_values(1)
+        except:
+            first_row = []
+
+        if not first_row:
+            headers = [
+                'Business Name', 'Industry', 'Email', 'Address', 'Phone',
+                'Website', 'Status', 'Source', 'Date Added',
+                'Date Emailed', 'Response', 'Notes'
+            ]
+            worksheet.append_row(headers)
+            log("  Added headers")
 
         rows = []
         for lead in leads:
@@ -303,11 +398,11 @@ def save_leads(leads, service_json, crm_sheet_id):
             ])
 
         worksheet.append_rows(rows)
-        log(f"  ✓ Saved {len(rows)} leads")
+        log(f"  SAVED {len(rows)} leads to CRM!")
         return len(rows)
 
     except Exception as e:
-        log(f"  ✗ Failed to save: {e}")
+        log(f"  FAILED to save: {e}")
         import traceback
         traceback.print_exc()
         return 0
@@ -315,19 +410,25 @@ def save_leads(leads, service_json, crm_sheet_id):
 def main():
     """Main entry point."""
     print("\n" + "=" * 60)
-    print("☕ HARK COFFEE LEAD SCRAPER")
+    print("HARK COFFEE LEAD SCRAPER")
+    print("Target: 200+ leads WITH emails per day")
     print("=" * 60)
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
     # Check for dry-run
     dry_run = '--dry-run' in sys.argv
     if dry_run:
-        log("🧪 DRY RUN MODE - Will not save to sheets")
+        log("DRY RUN MODE - Will not save to sheets")
+
+    # Load config
+    config = load_config()
+    if config:
+        log("Loaded config from search_terms.json")
 
     # Check environment
     env_ok, env_vars = check_env()
     if not env_ok:
-        log("\n❌ Missing required environment variables!")
+        log("\nMissing required environment variables!")
         return 1
 
     api_key = env_vars['GOOGLE_MAPS_API_KEY']
@@ -338,36 +439,37 @@ def main():
     # Test Google Maps API
     maps_ok, _ = test_google_maps_api(api_key)
     if not maps_ok:
-        log("\n❌ Google Maps API not working!")
-        log("→ Enable 'Places API' in Google Cloud Console")
+        log("\nGoogle Maps API not working!")
         return 1
 
-    # Test Sheets connection
+    # Test Sheets connection and get exclusion list
     sheets_ok, exclusion_emails = test_sheets_connection(service_json, sheet_id)
     if not sheets_ok:
-        log("\n❌ Google Sheets connection failed!")
-        log("→ Check service account has access to the sheet")
+        log("\nGoogle Sheets connection failed!")
         return 1
 
-    # Scrape leads
-    leads = scrape_leads(api_key, exclusion_emails)
+    # Scrape leads (only those WITH emails)
+    leads = scrape_leads(api_key, exclusion_emails, config)
 
     # Summary
     log("\n" + "=" * 60)
-    log("SUMMARY")
+    log("FINAL SUMMARY")
     log("=" * 60)
-    log(f"  Total leads found: {len(leads)}")
-    log(f"  With email: {len([l for l in leads if l.get('email')])}")
-    log(f"  Without email: {len([l for l in leads if not l.get('email')])}")
+    log(f"  Total leads WITH EMAIL: {len(leads)}")
+
+    if len(leads) >= 200:
+        log("  TARGET MET!")
+    else:
+        log(f"  ({200 - len(leads)} short of 200 target)")
 
     # Save
     if leads and not dry_run:
         saved = save_leads(leads, service_json, crm_id)
         log(f"  Saved to CRM: {saved}")
     elif dry_run:
-        log("  🧪 Dry run - not saving")
+        log("  Dry run - not saving")
 
-    log(f"\n✅ Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log(f"\nCompleted: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     return 0
 
 if __name__ == '__main__':
