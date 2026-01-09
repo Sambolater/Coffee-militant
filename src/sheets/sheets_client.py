@@ -41,8 +41,10 @@ class SheetsClient:
         self.client = self._authenticate()
 
         # Sheet IDs from environment
+        # GOOGLE_SHEET_ID = existing contacts (exclusion list)
+        # CRM_SHEET_ID = new leads sheet
         self.exclusion_sheet_id = os.getenv(
-            'EXCLUSION_SHEET_ID',
+            'GOOGLE_SHEET_ID',  # Using your existing secret name
             '15JmjQjjQIfhY0zKMzqBlvMMRGgJf3VFVgpOut_DG49s'
         )
         self.crm_sheet_id = os.getenv('CRM_SHEET_ID')
