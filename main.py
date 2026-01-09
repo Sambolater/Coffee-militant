@@ -137,6 +137,49 @@ def test_sheets_connection(service_json, sheet_id):
         traceback.print_exc()
         return False, set()
 
+def test_crm_sheet(service_json, crm_sheet_id):
+    """Test that we can write to the CRM sheet BEFORE scraping."""
+    log("\n" + "=" * 60)
+    log("TESTING CRM SHEET (where leads are saved)")
+    log("=" * 60)
+
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        if os.path.exists(service_json):
+            creds = Credentials.from_service_account_file(
+                service_json,
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
+            )
+        else:
+            creds_dict = json.loads(service_json)
+            creds = Credentials.from_service_account_info(
+                creds_dict,
+                scopes=['https://www.googleapis.com/auth/spreadsheets']
+            )
+
+        log("  Connecting to CRM sheet...")
+        client = gspread.authorize(creds)
+
+        log(f"  Opening sheet: {crm_sheet_id[:20]}...")
+        sheet = client.open_by_key(crm_sheet_id)
+        worksheet = sheet.sheet1
+
+        rows = len(worksheet.get_all_values())
+        log(f"  CRM sheet accessible: {rows} existing rows")
+        return True
+
+    except Exception as e:
+        log(f"  FAILED: {e}")
+        log("\n  *** CRM SHEET NOT ACCESSIBLE ***")
+        log("  The bot found leads but CANNOT save them.")
+        log("  Share the CRM sheet with the service account email as Editor.")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def find_email_from_website(url):
     """Find email from a website - checks multiple pages."""
     if not url:
@@ -446,6 +489,12 @@ def main():
     sheets_ok, exclusion_emails = test_sheets_connection(service_json, sheet_id)
     if not sheets_ok:
         log("\nGoogle Sheets connection failed!")
+        return 1
+
+    # Test CRM sheet connection BEFORE scraping (fail early!)
+    crm_ok = test_crm_sheet(service_json, crm_id)
+    if not crm_ok:
+        log("\nCRM Sheet not accessible! Fix this before scraping.")
         return 1
 
     # Scrape leads (only those WITH emails)
