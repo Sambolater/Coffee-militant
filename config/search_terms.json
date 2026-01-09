@@ -1,0 +1,92 @@
+{
+  "target_businesses": [
+    {
+      "category": "Real Estate",
+      "search_terms": [
+        "real estate agent",
+        "real estate agency",
+        "property management",
+        "estate agent"
+      ]
+    },
+    {
+      "category": "Accounting",
+      "search_terms": [
+        "accountant",
+        "accounting firm",
+        "CPA",
+        "bookkeeper",
+        "tax accountant"
+      ]
+    },
+    {
+      "category": "Wealth Management",
+      "search_terms": [
+        "wealth management",
+        "financial advisor",
+        "financial planner",
+        "investment advisor"
+      ]
+    },
+    {
+      "category": "Lawyers",
+      "search_terms": [
+        "lawyer",
+        "law firm",
+        "solicitor",
+        "legal services",
+        "attorney"
+      ]
+    },
+    {
+      "category": "Architects",
+      "search_terms": [
+        "architect",
+        "architecture firm",
+        "architectural services"
+      ]
+    },
+    {
+      "category": "Interior Design",
+      "search_terms": [
+        "interior designer",
+        "interior design studio",
+        "interior decorator"
+      ]
+    },
+    {
+      "category": "Marketing",
+      "search_terms": [
+        "marketing agency",
+        "digital marketing",
+        "marketing company",
+        "advertising agency"
+      ]
+    },
+    {
+      "category": "Branding",
+      "search_terms": [
+        "branding agency",
+        "brand design",
+        "graphic design agency",
+        "creative agency"
+      ]
+    }
+  ],
+  "location": {
+    "city": "Adelaide",
+    "state": "South Australia",
+    "country": "Australia",
+    "center_lat": -34.9285,
+    "center_lng": 138.6007,
+    "radius_meters": 25000
+  },
+  "exclude_types": [
+    "cafe",
+    "coffee_shop",
+    "restaurant",
+    "bakery",
+    "bar",
+    "food"
+  ]
+}
